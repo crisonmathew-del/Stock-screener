@@ -1,0 +1,6 @@
+# Install everything with:  pip install -r requirements.txt
+streamlit>=1.46       # the browser-based user interface
+yfinance>=0.2.40      # free live(ish) market data from Yahoo Finance
+pandas>=2.0           # tables and time-series maths
+numpy>=1.24           # number crunching
+plotly>=5.18          # the interactive candlestick charts
