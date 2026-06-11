@@ -180,7 +180,8 @@ def freshness_banner(fetched_at_utc, last_bar_time=None):
                 when = ""
         st.info("ℹ️ US markets are currently closed. Prices are from the last "
                 f"trading session{when}. They will update when the market "
-                "reopens (9:30am-4pm New York time, Mon-Fri).")
+                "reopens — 9:30am-4pm New York time (usually 2:30pm-9pm in "
+                "the UK), Mon-Fri.")
         return
 
     age = data_age_minutes(fetched_at_utc)

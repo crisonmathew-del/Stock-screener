@@ -9,7 +9,7 @@ in a confirmed, established uptrend.
 import pandas as pd
 import streamlit as st
 
-from data_fetcher import fetch_watchlist_history, clear_all_caches, EASTERN
+from data_fetcher import fetch_watchlist_history, clear_all_caches, UK
 from minervini import (evaluate_trend_template, relative_strength_ranks,
                        CRITERIA_LABELS)
 from ui_helpers import PAGE_TREND, go_to_analysis, freshness_banner, glossary_expander
@@ -104,7 +104,7 @@ def render():
         ["_passed", "RS rank (vs watchlist)"], ascending=False
     ).drop(columns="_passed").reset_index(drop=True)
 
-    scan_time = (fetched_at.astimezone(EASTERN).strftime("%a %d %b %Y, %I:%M %p ET")
+    scan_time = (fetched_at.astimezone(UK).strftime("%a %d %b %Y, %I:%M %p UK time")
                  if fetched_at else "unknown")
     st.markdown(f"**{len(passing)} of {len(table)} stocks pass** "
                 f"({need} of 7 rules{' + RS rank > 70' if require_rs else ''}). "

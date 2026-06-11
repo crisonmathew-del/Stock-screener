@@ -23,7 +23,7 @@ import pandas as pd
 import streamlit as st
 
 from breakout_score import compute_breakout
-from data_fetcher import fetch_stock, fetch_quotes, clear_all_caches, EASTERN
+from data_fetcher import fetch_stock, fetch_quotes, clear_all_caches, EASTERN, UK
 from indicators import (fibonacci_levels, support_resistance, swing_low,
                         range_position, range_position_label)
 from patterns import detect_patterns
@@ -153,8 +153,9 @@ def render():
               help="Trading that happens outside regular 9:30am-4pm ET hours. "
                    "Thinner and jumpier than regular trading.")
     c4.metric("Data as of",
-              data["fetched_at"].astimezone(EASTERN).strftime("%I:%M %p ET"),
-              help="When this page's data was downloaded from Yahoo Finance.")
+              data["fetched_at"].astimezone(UK).strftime("%I:%M %p UK"),
+              help="When this page's data was downloaded from Yahoo Finance "
+                   "(shown in UK time).")
 
     st.markdown(f"**52-week range:** &nbsp; 52-week low: {money(low52)} — "
                 f"52-week high: {money(high52)}")

@@ -1,0 +1,14 @@
+# Streamlit theme configuration.
+#
+# The app's colour design (badges, verdict colours, chart, navigation pills)
+# is built on a light, high-contrast palette chosen for WCAG AA readability.
+# Locking the base theme to "light" keeps every device — including phones in
+# dark mode — on that tested palette instead of a half-dark hybrid where
+# light pills get unreadable white text.
+
+[theme]
+base = "light"
+primaryColor = "#1565c0"          # buttons/accents: the same blue as the 20-day MA
+backgroundColor = "#ffffff"
+secondaryBackgroundColor = "#f5f7fa"
+textColor = "#262730"

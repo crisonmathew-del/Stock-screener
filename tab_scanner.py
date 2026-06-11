@@ -12,8 +12,7 @@ import pandas as pd
 import streamlit as st
 
 from breakout_score import compute_breakout
-from data_fetcher import (fetch_watchlist_history, market_status, EASTERN,
-                          clear_all_caches)
+from data_fetcher import fetch_watchlist_history, UK, clear_all_caches
 from ui_helpers import (PAGE_SCANNER, go_to_analysis, freshness_banner,
                         glossary_expander)
 from watchlist import all_tickers, all_sectors, company_name, sector_of
@@ -107,9 +106,8 @@ def render():
         filtered = filtered[filtered["Sector"] == sector]
     filtered = filtered.sort_values("Score", ascending=False).reset_index(drop=True)
 
-    # ---------------- Match count + last-scan time ----------------
-    _, now_et = market_status()
-    scan_time = (fetched_at.astimezone(EASTERN).strftime("%a %d %b %Y, %I:%M %p ET")
+    # ---------------- Match count + last-scan time (shown in UK time) ----------------
+    scan_time = (fetched_at.astimezone(UK).strftime("%a %d %b %Y, %I:%M %p UK time")
                  if fetched_at else "unknown")
     left, right = st.columns([3, 1])
     with left:

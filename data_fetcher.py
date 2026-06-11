@@ -20,6 +20,7 @@ import streamlit as st
 import yfinance as yf
 
 EASTERN = ZoneInfo("America/New_York")  # US stock exchanges run on Eastern Time
+UK = ZoneInfo("Europe/London")          # timestamps are DISPLAYED in UK time
 
 
 # --------------------------------------------------------------------------
