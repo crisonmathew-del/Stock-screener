@@ -237,8 +237,30 @@ def fetch_quotes(symbols: tuple):
     return out, datetime.now(timezone.utc)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def fetch_backtest_history(ticker: str):
+    """A longer (5-year) history just for the strategy backtest section, so
+    a 3-year test still has room for the 200-day average to warm up first.
+    Fetched separately so the rest of the analysis page is unaffected.
+
+    Returns (DataFrame, fetched_at_utc) or (None, None).
+    """
+    ticker = ticker.strip().upper()
+    if not ticker:
+        return None, None
+    try:
+        hist = yf.Ticker(ticker).history(period="5y", interval="1d",
+                                         auto_adjust=True)
+    except Exception:
+        return None, None
+    if hist is None or hist.empty or len(hist) < 2:
+        return None, None
+    return sanitize_history(hist), datetime.now(timezone.utc)
+
+
 def clear_all_caches():
     """Wipe every cached download (wired to the 'Refresh data' buttons)."""
     fetch_watchlist_history.clear()
     fetch_stock.clear()
     fetch_quotes.clear()
+    fetch_backtest_history.clear()

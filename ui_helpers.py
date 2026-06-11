@@ -134,6 +134,9 @@ def badge(text: str, kind: str = "neutral"):
 
 def card(body_markdown: str, kind: str = "neutral", title: str = ""):
     """A coloured box with readable text, for summaries and warnings."""
+    # Inside a raw-HTML block markdown does NOT process escapes (or LaTeX),
+    # so money()'s protective backslash would show literally — drop it here.
+    body_markdown = body_markdown.replace("\\$", "$")
     bg, fg, border = _BADGE_STYLES.get(kind, _BADGE_STYLES["neutral"])
     title_html = (f"<div style='font-weight:700;font-size:1.05rem;"
                   f"margin-bottom:6px;'>{title}</div>") if title else ""
