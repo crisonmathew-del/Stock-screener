@@ -145,6 +145,7 @@ watchlist.py       ← the 170+ stocks scanned (edit me!)
 data_fetcher.py    ← all Yahoo Finance downloads, caching, market hours
 indicators.py      ← the maths: RSI, MACD, moving averages, Fibonacci…
 breakout_score.py  ← the 0–100 scoring rules (every threshold documented)
+price_chart.py     ← the interactive chart + neutral technical-event markers
 patterns.py        ← chart-pattern detection (cup & handle, flags, candles…)
 minervini.py       ← the 7-rule Trend Template + relative-strength ranking
 tab_scanner.py     ← Tab 1 UI

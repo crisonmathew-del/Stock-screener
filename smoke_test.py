@@ -84,6 +84,47 @@ ranks = relative_strength_ranks({
 check("RS ranks ordered", ranks["UP"] > ranks["FLAT"] > ranks["DOWN"])
 check("RS ranks in 1-100", all(1 <= v <= 100 for v in ranks.values()))
 
+print("price chart…")
+from price_chart import detect_chart_events, build_price_chart, EVENT_TYPES
+from indicators import fibonacci_levels as _fib, support_resistance as _sr
+
+busy = make_history(drift=0.001, last_day_jump=0.04, last_day_volume_mult=3.5)
+events = detect_chart_events(busy)
+check("events detected on a busy chart", len(events) > 0)
+check("event types are all known", all(e["type"] in EVENT_TYPES for e in events))
+check("events sorted by date", all(a["date"] <= b["date"]
+                                   for a, b in zip(events, events[1:])))
+check("volume spike marked on jump day",
+      any(e["type"] in ("volume_spike", "breakout")
+          and e["date"] == busy.index[-1] for e in events))
+import re
+check("no buy/sell wording in labels/hovers",  # whole words only: "sellers" in prose is fine
+      not any(re.search(r"\b(buy|sell)\b", (e["label"] + " " + e["hover"]).lower())
+              for e in events))
+fig = build_price_chart("TEST", busy, _fib(busy), _sr(busy), events)
+check("figure builds with traces", len(fig.data) >= 5)
+check("range buttons present",
+      len(fig.layout.xaxis.rangeselector.buttons) == 5)
+check("range slider present", fig.layout.xaxis2.rangeslider.visible is True)
+check("no dollar signs in chart annotations (LaTeX guard)",
+      all("$" not in (a.text or "") for a in fig.layout.annotations))
+check("short history yields no events", detect_chart_events(make_history(days=30)) == [])
+
+# Regression: a cross is a one-day event. Build a price path whose 50-day MA
+# crosses the 200-day exactly once (long decline, then a strong rally) and
+# make sure exactly ONE golden cross is reported — not one per day.
+trend = np.r_[np.linspace(140, 80, 280), np.linspace(80, 150, 120)]
+one_cross = pd.DataFrame({
+    "Open": trend, "High": trend * 1.005, "Low": trend * 0.995,
+    "Close": trend, "Volume": np.full(400, 1_500_000.0),
+}, index=pd.bdate_range(end=pd.Timestamp.today(), periods=400))
+golden = [e for e in detect_chart_events(one_cross) if e["type"] == "golden_cross"]
+check("single MA cross -> exactly one golden-cross event", len(golden) == 1)
+for t in ("golden_cross", "death_cross", "macd_up", "macd_down"):
+    dts = sorted(e["date"] for e in events if e["type"] == t)
+    adjacent = any((b - a).days <= 1 for a, b in zip(dts, dts[1:]))
+    check(f"no {t} events on adjacent days", not adjacent)
+
 print("patterns…")
 rep = detect_patterns(make_history())
 check("pattern report shape", {"shown", "not_detected", "verdict",

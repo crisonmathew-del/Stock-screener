@@ -20,15 +20,14 @@ import math
 
 import numpy as np
 import pandas as pd
-import plotly.graph_objects as go
 import streamlit as st
-from plotly.subplots import make_subplots
 
 from breakout_score import compute_breakout
 from data_fetcher import fetch_stock, fetch_quotes, clear_all_caches, EASTERN
-from indicators import (sma, fibonacci_levels, support_resistance, swing_low,
+from indicators import (fibonacci_levels, support_resistance, swing_low,
                         range_position, range_position_label)
 from patterns import detect_patterns
+from price_chart import detect_chart_events, build_price_chart
 from ui_helpers import (money, pct, card, badge, freshness_banner,
                         sanity_check_price_move, glossary_expander)
 from watchlist import SECTOR_ETFS, DEFAULT_MARKET_ETF, sector_of
@@ -149,11 +148,34 @@ def render():
                     f"that range — in plain terms, it is **{pos_label}**.")
 
     # ------------------------------------------------------------------
-    # D) CHART
+    # D) CHART (interactive: zoom, pan, range buttons, event markers)
     # ------------------------------------------------------------------
-    st.subheader("📉 6-month price chart")
-    st.plotly_chart(_build_chart(ticker, hist, fib, levels),
-                    width="stretch")
+    st.subheader("📉 Interactive price chart")
+    chart_events = detect_chart_events(hist)
+    st.plotly_chart(
+        build_price_chart(ticker, hist, fib, levels, chart_events),
+        width="stretch",
+        config={"scrollZoom": True, "displaylogo": False},
+    )
+    st.caption("Drag to pan, scroll to zoom, or use the 1M/3M/6M/YTD/1Y "
+               "buttons and the slider underneath. Click a legend entry to "
+               "hide or show a line or a marker group. Hover any candle or "
+               "marker for the detail.")
+
+    # Plain-English recap of the markers, most recent first
+    if chart_events:
+        recent = list(reversed(chart_events[-4:]))
+        st.markdown("**Most recent events on this chart:** "
+                    + "; ".join(f"{e['date'].strftime('%d %b %Y')} — {e['label']}"
+                                for e in recent) + ".")
+    else:
+        st.markdown("**Most recent events on this chart:** none detected in "
+                    "the charted period — a quiet chart is normal.")
+    card("🏷 The markers show technical events that have <b>already "
+         "happened</b> — they are <b>NOT</b> buy or sell signals. Indicators "
+         "describe the past and often get the future wrong. Use them to "
+         "understand what the chart is doing, then decide for yourself.",
+         kind="neutral")
     st.markdown("*Use this chart to visually confirm the patterns described "
                 "below before acting. Solid lines are support/resistance; "
                 "dashed lines are Fibonacci levels.*")
@@ -412,73 +434,6 @@ def _render_summary(ticker, company, b, price, pct_today, pos, pos_label,
     )
     kind = "good" if score >= 70 else "warn" if score >= 45 else "neutral"
     card(body, kind=kind, title=f"📋 Quick summary — {company} ({ticker})")
-
-
-def _build_chart(ticker, hist, fib, levels):
-    """The interactive Plotly chart: 6 months of candles, volume, moving
-    averages, support/resistance (solid) and Fibonacci levels (dashed).
-    Uses the SAME `fib` and `levels` dicts as the tables in section F."""
-    full_close = hist["Close"]
-    df = hist.iloc[-126:]  # ~6 months of trading days
-
-    fig = make_subplots(rows=2, cols=1, shared_xaxes=True,
-                        row_heights=[0.75, 0.25], vertical_spacing=0.03)
-
-    # Candles: green when the day closed up, red when it closed down
-    fig.add_trace(go.Candlestick(
-        x=df.index, open=df["Open"], high=df["High"],
-        low=df["Low"], close=df["Close"], name=ticker,
-        increasing_line_color="#1a7f37", decreasing_line_color="#c62828",
-    ), row=1, col=1)
-
-    # Moving-average overlays (computed on FULL history so they're accurate
-    # at the left edge of the 6-month window too)
-    for window, colour in ((20, "#1565c0"), (50, "#e65100"), (200, "#6a1b9a")):
-        if len(full_close) >= window:
-            ma = sma(full_close, window).iloc[-126:]
-            fig.add_trace(go.Scatter(
-                x=df.index, y=ma, name=f"{window}-day MA",
-                line=dict(color=colour, width=1.6),
-            ), row=1, col=1)
-
-    # Support / resistance — solid lines, same values as the table
-    for days, colour in ((30, "#2e7d32"), (90, "#33691e")):
-        fig.add_hline(y=levels[days]["support"], line_color=colour,
-                      line_width=1.2, row=1, col=1,
-                      annotation_text=f"Support ({days}d)",
-                      annotation_position="bottom left",
-                      annotation_font_color=colour)
-    for days, colour in ((30, "#b71c1c"), (90, "#880e4f")):
-        fig.add_hline(y=levels[days]["resistance"], line_color=colour,
-                      line_width=1.2, row=1, col=1,
-                      annotation_text=f"Resistance ({days}d)",
-                      annotation_position="top left",
-                      annotation_font_color=colour)
-
-    # Fibonacci levels — dashed, same values as the table
-    for name, lvl in fib["levels"].items():
-        fig.add_hline(y=lvl, line_dash="dash", line_color="#546e7a",
-                      line_width=1, row=1, col=1,
-                      annotation_text=f"Fib {name}",
-                      annotation_position="top right",
-                      annotation_font_color="#37474f")
-
-    # Volume bars, colour-matched to the candles
-    bar_colours = ["#1a7f37" if c >= o else "#c62828"
-                   for c, o in zip(df["Close"], df["Open"])]
-    fig.add_trace(go.Bar(x=df.index, y=df["Volume"], name="Volume",
-                         marker_color=bar_colours), row=2, col=1)
-
-    fig.update_layout(
-        title=f"{ticker} — last 6 months (daily candles)",
-        xaxis_rangeslider_visible=False,
-        height=620,
-        legend=dict(orientation="h", y=1.06),
-        margin=dict(l=10, r=10, t=70, b=10),
-    )
-    fig.update_yaxes(title_text="Price ($)", row=1, col=1)
-    fig.update_yaxes(title_text="Volume", row=2, col=1)
-    return fig
 
 
 def _render_market_context(ticker, info):
