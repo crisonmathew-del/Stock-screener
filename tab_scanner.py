@@ -128,17 +128,25 @@ def render():
                 "score 40-60.")
         return
 
-    # ---------------- Results table (click a row to analyse) ----------------
-    st.markdown("**Click any row** to open the full analysis for that stock. "
-                "Click a column header to re-sort.")
+    # ---------------- Results table (tap a row to analyse) ----------------
+    st.markdown("**Tap the circle at the left of any row** to open that "
+                "stock's full analysis instantly. Click a column header "
+                "to re-sort.")
+    # The key is versioned: after navigating away we bump it, so returning
+    # to this tab shows a fresh table instead of re-firing the old selection.
+    ver = st.session_state.setdefault("scanner_table_ver", 0)
     event = st.dataframe(
         filtered,
         hide_index=True,
         width="stretch",
         on_select="rerun",
         selection_mode="single-row",
-        key="scanner_table",
+        key=f"scanner_table_{ver}",
         column_config={
+            "Ticker": st.column_config.TextColumn(
+                pinned=True,
+                help="The stock's trading symbol. Stays visible while you "
+                     "scroll the table sideways on a phone."),
             "Price": st.column_config.NumberColumn(
                 format="$%.2f", help="Latest price from Yahoo Finance."),
             "% today": st.column_config.NumberColumn(
@@ -164,12 +172,13 @@ def render():
         },
     )
 
-    # When a row is clicked, offer a clear one-click jump to the analysis tab.
+    # A tapped row opens the analysis tab immediately — no extra click.
     selected_rows = event.selection.rows if event and event.selection else []
     if selected_rows:
         ticker = filtered.iloc[selected_rows[0]]["Ticker"]
-        st.button(f"🔎 Analyse {ticker} →", type="primary",
-                  on_click=go_to_analysis, args=(ticker, PAGE_SCANNER))
+        st.session_state["scanner_table_ver"] = ver + 1  # forget the selection
+        go_to_analysis(ticker, PAGE_SCANNER)
+        st.rerun()
 
     st.caption("Verdicts: 🟢 70-100 = Strong breakout setup · 🟡 45-69 = "
                "Watch — building momentum · 🔴 below 45 = Not a breakout "

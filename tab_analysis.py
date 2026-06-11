@@ -30,7 +30,8 @@ from patterns import detect_patterns
 from price_chart import detect_chart_events, build_price_chart
 from ui_helpers import (money, pct, card, badge, freshness_banner,
                         sanity_check_price_move, glossary_expander)
-from watchlist import SECTOR_ETFS, DEFAULT_MARKET_ETF, sector_of
+from watchlist import (SECTOR_ETFS, DEFAULT_MARKET_ETF, sector_of,
+                       ticker_options, option_label, ticker_from_option)
 
 
 def render():
@@ -40,21 +41,35 @@ def render():
     came_from = st.session_state.get("came_from")
     if came_from:
         def _go_back():
-            st.session_state["nav"] = came_from
+            st.session_state["nav_target"] = came_from
             st.session_state["came_from"] = None
         st.button("← Back to scan results", on_click=_go_back)
 
-    ticker = st.text_input(
-        "Enter a US stock ticker (e.g. AAPL, NVDA, TSLA):",
-        key="ticker_input",
-        value=st.session_state.get("ticker_input", "AAPL"),
-        help="The short code a stock trades under. Apple = AAPL, "
-             "Microsoft = MSFT. Find any ticker on finance.yahoo.com.",
-    ).strip().upper()
+    # A clicked scan row requests a ticker via "analyse_target" — load it
+    # into the search box BEFORE the widget is created (Streamlit's rule).
+    if "analyse_target" in st.session_state:
+        st.session_state["stock_search"] = option_label(
+            st.session_state.pop("analyse_target"))
+    st.session_state.setdefault("stock_search", option_label("AAPL"))
+
+    # Type-ahead search: suggestions appear as you type (matching ticker OR
+    # company name), and any other US ticker can be typed in free-form.
+    choice = st.selectbox(
+        "Search for a stock — type a ticker (AAPL) or a company name (Apple):",
+        options=ticker_options(),
+        key="stock_search",
+        accept_new_options=True,
+        placeholder="Start typing… e.g. NVDA or Nvidia",
+        help="Suggestions cover the scanner's watchlist. For any other US "
+             "stock, just type its ticker (find tickers on finance.yahoo.com) "
+             "and press Enter.",
+    )
+    ticker = ticker_from_option(choice)
 
     glossary_expander()
     if not ticker:
-        st.info("Type a ticker above to begin — for example **AAPL** (Apple).")
+        st.info("Start typing above to find a stock — for example **AAPL** "
+                "(Apple).")
         return
 
     with st.spinner(f"Downloading data for {ticker}…"):

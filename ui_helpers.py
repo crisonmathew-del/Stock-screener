@@ -26,12 +26,59 @@ PAGES = [PAGE_SCANNER, PAGE_ANALYSE, PAGE_TREND]
 
 
 def go_to_analysis(ticker: str, came_from: str):
-    """Jump to the analysis tab with `ticker` pre-loaded (used as a button
-    callback, which Streamlit runs before redrawing the page)."""
-    st.session_state["analyse_ticker"] = ticker
-    st.session_state["ticker_input"] = ticker
+    """Request a jump to the analysis tab with `ticker` pre-loaded.
+
+    Works from anywhere (row clicks, buttons): it only records the request
+    in session state — `handle_nav_target()` applies it at the very top of
+    the NEXT rerun, before the navigation widget exists, which is the only
+    moment Streamlit allows a widget's state to be changed in code."""
+    st.session_state["analyse_target"] = ticker
     st.session_state["came_from"] = came_from
-    st.session_state["nav"] = PAGE_ANALYSE
+    st.session_state["nav_target"] = PAGE_ANALYSE
+
+
+def handle_nav_target():
+    """Apply any pending programmatic tab switch. Must be called in app.py
+    BEFORE the navigation widget is created."""
+    if "nav_target" in st.session_state:
+        st.session_state["nav"] = st.session_state.pop("nav_target")
+
+
+def apply_global_styles():
+    """Small CSS layer for fluidity and mobile friendliness.
+
+    * The tab navigation renders as tappable pill buttons that wrap neatly
+      on narrow screens (instead of cramped radio dots).
+    * On phones (<= 640px wide) page padding shrinks and headings scale
+      down so content uses the full width.
+    Uses only stable Streamlit/BaseWeb selectors; verified by the UI tests.
+    """
+    st.markdown("""<style>
+    /* --- top navigation: radio styled as wrapping pill buttons --- */
+    div[role="radiogroup"] {
+        flex-direction: row; flex-wrap: wrap; gap: 0.45rem 0.55rem;
+    }
+    label[data-baseweb="radio"] {
+        background: #f0f2f6; border: 1px solid #d5d9e0;
+        border-radius: 999px; padding: 0.4rem 1rem; margin: 0;
+        transition: background 0.15s ease, border-color 0.15s ease;
+        cursor: pointer;
+    }
+    label[data-baseweb="radio"]:hover { background: #e6eaf1; }
+    label[data-baseweb="radio"]:has(input:checked) {
+        background: #e3ecf9; border-color: #1565c0; font-weight: 600;
+    }
+    label[data-baseweb="radio"] > div:first-child { display: none; } /* hide dot */
+
+    /* --- phones: use the full width, scale type down a notch --- */
+    @media (max-width: 640px) {
+        .block-container { padding: 1.1rem 0.9rem 2rem; }
+        h1 { font-size: 1.5rem; }
+        h2 { font-size: 1.25rem; }
+        h3 { font-size: 1.1rem; }
+        [data-testid="stMetricValue"] { font-size: 1.35rem; }
+    }
+    </style>""", unsafe_allow_html=True)
 
 
 # --------------------------------------------------------------------------

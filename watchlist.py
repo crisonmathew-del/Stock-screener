@@ -235,3 +235,33 @@ def sector_of(ticker):
 def all_sectors():
     """Unique sector names present in the watchlist, sorted."""
     return sorted({s for _, s in WATCHLIST.values()})
+
+
+# ---------------------------------------------------------------------------
+# Helpers for the type-ahead stock search box (Analyse tab)
+# ---------------------------------------------------------------------------
+
+def ticker_options():
+    """Searchable labels for every watchlist stock, e.g.
+    'AAPL — Apple (Technology)'. Typing either the ticker OR the company
+    name finds it."""
+    return [f"{t} — {name} ({sector})"
+            for t, (name, sector) in sorted(WATCHLIST.items())]
+
+
+def option_label(ticker):
+    """The search-box label for a ticker ('AAPL' -> 'AAPL — Apple (Technology)').
+    Unknown tickers are returned as-is so any US stock can still be analysed."""
+    t = (ticker or "").strip().upper()
+    if t in WATCHLIST:
+        name, sector = WATCHLIST[t]
+        return f"{t} — {name} ({sector})"
+    return t
+
+
+def ticker_from_option(option):
+    """Parse the ticker back out of a search-box value. Handles both picked
+    options ('AAPL — Apple (Technology)') and free-typed text ('brk-b')."""
+    if not option:
+        return ""
+    return option.split("—")[0].strip().upper()

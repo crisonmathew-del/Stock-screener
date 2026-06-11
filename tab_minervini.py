@@ -117,15 +117,22 @@ def render():
                 "little passes, cash is also a position.")
         return
 
-    st.markdown("**Click any row** to open the full analysis for that stock.")
+    st.markdown("**Tap the circle at the left of any row** to open that "
+                "stock's full analysis instantly.")
+    # Versioned key: bumping it after navigation clears the old selection.
+    ver = st.session_state.setdefault("minervini_table_ver", 0)
     event = st.dataframe(
         passing,
         hide_index=True,
         width="stretch",
         on_select="rerun",
         selection_mode="single-row",
-        key="minervini_table",
+        key=f"minervini_table_{ver}",
         column_config={
+            "Ticker": st.column_config.TextColumn(
+                pinned=True,
+                help="Stays visible while you scroll the table sideways "
+                     "on a phone."),
             "Price": st.column_config.NumberColumn(format="$%.2f"),
             "% above 52-wk low": st.column_config.NumberColumn(
                 format="%+.0f%%",
@@ -148,8 +155,9 @@ def render():
     selected = event.selection.rows if event and event.selection else []
     if selected:
         ticker = passing.iloc[selected[0]]["Ticker"]
-        st.button(f"🔎 Analyse {ticker} →", type="primary",
-                  on_click=go_to_analysis, args=(ticker, PAGE_TREND))
+        st.session_state["minervini_table_ver"] = ver + 1  # forget selection
+        go_to_analysis(ticker, PAGE_TREND)
+        st.rerun()
 
     # ---------------- Per-rule checklist for the passing stocks ----------------
     with st.expander("🔬 Full rule-by-rule checklist for these stocks"):
