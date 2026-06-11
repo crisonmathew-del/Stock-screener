@@ -3,6 +3,7 @@ TAB 2 — "Analyse a Specific Stock": the full deep-dive on one ticker.
 
 Reading order (top to bottom):
   A) Quick Summary — the whole story in plain English
+  A2) Verdict — ONE clear, colour-coded read on the setup right now
   B) Earnings warning — if results are due soon, you need to know FIRST
   C) Price block — live price, today's move, 52-week range
   D) Interactive chart — candles, moving averages, support/resistance, Fibonacci
@@ -22,12 +23,11 @@ import numpy as np
 import pandas as pd
 import streamlit as st
 
-import plotly.graph_objects as go
 
-from backtest import STRATEGIES, run_backtest, interpret
 from breakout_score import compute_breakout
-from data_fetcher import (fetch_stock, fetch_quotes, fetch_backtest_history,
+from data_fetcher import (fetch_stock, fetch_quotes,
                           clear_all_caches, EASTERN, UK)
+from minervini import evaluate_trend_template
 from indicators import (fibonacci_levels, support_resistance, swing_low,
                         range_position, range_position_label)
 from patterns import detect_patterns
@@ -98,6 +98,15 @@ def render():
     # ------------------------------------------------------------------
     price = float(info["current_price"] or breakout["price"])
     prev_close = info["previous_close"] or breakout["prev_close"]
+    # Yahoo's live quote is a SEPARATE feed from the price history and can be
+    # on a different split-adjustment basis (the source of impossible numbers
+    # like +1009%). If the quote disagrees wildly with the cleaned history,
+    # trust the history — it has been sanity-checked, the quote hasn't.
+    if not (1 / 3 < price / breakout["price"] < 3):
+        price = breakout["price"]
+    if (not prev_close or not (1 / 3 < prev_close / breakout["prev_close"] < 3)
+            or not (1 / 3 < price / prev_close < 3)):
+        prev_close = breakout["prev_close"]
     pct_today = ((price - prev_close) / prev_close * 100) if prev_close else None
     # Prefer Yahoo's own intraday 52-week extremes (matches Yahoo/CNBC);
     # fall back to ones computed from the downloaded history.
@@ -118,6 +127,11 @@ def render():
     # ------------------------------------------------------------------
     _render_summary(ticker, company, breakout, price, pct_today, pos, pos_label,
                     levels, days_to_earnings)
+
+    # ------------------------------------------------------------------
+    # A2) VERDICT — one clear, colour-coded read on the setup right now
+    # ------------------------------------------------------------------
+    _render_verdict(ticker, info, hist, breakout, pct_today, days_to_earnings)
 
     # ------------------------------------------------------------------
     # B) EARNINGS WARNING — prominent, near the top
@@ -349,11 +363,6 @@ def render():
                 "setting sail. Informational only; not part of the score.*")
     _render_market_context(ticker, info)
 
-    # ------------------------------------------------------------------
-    # J) STRATEGY BACKTEST (for learning — never advice)
-    # ------------------------------------------------------------------
-    _render_backtest(ticker)
-
     if st.button("🔄 Refresh this stock's data"):
         clear_all_caches()
         st.rerun()
@@ -525,195 +534,173 @@ def _render_market_context(ticker, info):
             "day. Checking them takes five seconds and saves a lot of pain.")
 
 
-def _render_backtest(ticker):
-    """Section J: replay a simple trading rule on this stock's past prices.
-    Pure learning tool — every output compares against buy-and-hold and ends
-    with an honesty note. Uses its own 5-year data download so nothing else
-    on the page changes."""
-    st.subheader("📊 Strategy backtest (for learning)")
-    st.markdown(
-        "This shows you something powerful: **if you had followed a simple "
-        "buying-and-selling rule on this stock over the past few years, "
-        "would it actually have made money?** Pick a rule below and see the "
-        "results. ⚠️ **Important:** this only shows what happened in the "
-        "**PAST** on this **one stock**. It does **NOT** predict the future "
-        "— a rule that worked before often stops working. This is here to "
-        "help you understand how 'signals' really behave, not to give you a "
-        "strategy to follow.")
 
-    # ---------------- Controls ----------------
-    c1, c2, c3 = st.columns(3)
-    with c1:
-        strategy_key = st.selectbox(
-            "Trading rule to test",
-            options=list(STRATEGIES.keys()),
-            format_func=lambda k: STRATEGIES[k]["label"],
-            key="bt_strategy",
-            help="Each rule is a mechanical 'buy when X, sell when Y' "
-                 "recipe — no judgement, no emotions, applied to every day "
-                 "of past prices.")
-    with c2:
-        years = st.selectbox("Test period", [1, 2, 3], index=1,
-                             format_func=lambda y: f"{y} year{'s' if y > 1 else ''}",
-                             key="bt_years",
-                             help="How far back to replay the rule.")
-    with c3:
-        start_cash = st.number_input(
-            "Hypothetical starting money ($)", min_value=100.0,
-            value=10_000.0, step=1_000.0, key="bt_cash",
-            help="Pretend money. The simulation goes all-in on every buy "
-                 "and fully out on every sell.")
-    st.markdown(f"*{STRATEGIES[strategy_key]['description']}*")
 
-    # ---------------- Data + run ----------------
-    bt_hist, _bt_fetched = fetch_backtest_history(ticker)
-    if bt_hist is None:
-        st.info("😕 Couldn't download the longer price history needed for "
-                "backtesting right now — Yahoo may be rate-limiting. Try "
-                "again in a minute.")
-        return
-    result = run_backtest(bt_hist, strategy_key, years, start_cash)
-    if result["error"]:
-        st.info("ℹ️ " + result["error"])
-        return
-    if result["note"]:
-        st.caption("ℹ️ " + result["note"])
-    if result["started_in_market"]:
-        st.caption("ℹ️ The rule was already saying 'hold' on the first day "
-                   "of this period (its buy signal fired before the window "
-                   "began), so the test starts with a buy on day one.")
+# ==========================================================================
+# The Verdict section: one clear, colour-coded read on the current setup
+# ==========================================================================
 
-    yrs_txt = (f"{result['period_years']:.1f} years"
-               if result['period_years'] < years - 0.05
-               else f"{years} year{'s' if years > 1 else ''}")
+def compute_verdict(minervini_passed, score, vol_ratio, pct_today, rsi,
+                    extended, backdrop, days_to_earnings):
+    """Combine the six checks into ONE verdict. Pure logic, no UI, so it's
+    easy to test. Returns {"level": green/amber/red, "drivers", "risks"}.
 
-    # ---------------- Bottom line first ----------------
-    if result["beat_buy_hold"]:
-        verdict_txt = "In this case, the rule did <b>BETTER</b> than just holding."
-        kind = "good"
-    elif abs(result["return_pct"] - result["bh_return_pct"]) < 1:
-        verdict_txt = ("In this case, the rule and just holding ended "
-                       "<b>about the same</b>.")
-        kind = "warn"
+    The factors and their weights (positives push up, negatives pull down):
+      * Long-term trend passes the Minervini Trend Template -> strong positive
+      * Breakout score >=70 positive / 45-69 mild positive / <45 negative
+      * Volume today >=1.5x average -> positive
+      * Not over-extended (not up >8% today, RSI <78) -> positive, else a
+        STRONG negative
+      * Market backdrop positive/neutral/negative
+      * Earnings more than 7 days away -> positive; within 7 days -> a
+        STRONG negative
+    A strong negative always forces the verdict down to amber or red —
+    never green with a major risk on the table.
+    """
+    drivers, risks = [], []
+    total, negatives, strong_neg = 0, 0, False
+
+    # 1. Long-term trend (Minervini Trend Template)
+    if minervini_passed == 7:
+        total += 2
+        drivers.append("in a confirmed long-term uptrend — it passes all 7 "
+                       "Minervini trend rules")
+    elif minervini_passed == 6:
+        total += 1
+        drivers.append("close to a confirmed long-term uptrend (6 of 7 "
+                       "trend rules)")
     else:
-        verdict_txt = "In this case, the rule did <b>WORSE</b> than just holding."
-        kind = "warn" if result["return_pct"] > 0 else "bad"
-    card(f"Following this rule turned {money(result['starting_cash'], 0)} "
-         f"into <b>{money(result['final_value'], 0)}</b> over {yrs_txt} "
-         f"({result['return_pct']:+.1f}%). Simply buying and holding the "
-         f"stock would have turned it into "
-         f"<b>{money(result['bh_value'], 0)}</b> "
-         f"({result['bh_return_pct']:+.1f}%). {verdict_txt}", kind=kind)
+        risks.append("the long-term trend isn't confirmed")
 
-    # ---------------- Trade summary + drawdown, in plain words ----------------
-    if result["n_closed"] == 0 and not result["trades"]:
-        st.markdown("**The rule never triggered a single trade** in this "
-                    "period — the money sat in cash the whole time.")
+    # 2. Breakout score
+    if score >= 70:
+        total += 2
+        drivers.append(f"showing a strong breakout setup (score {score}/100)")
+    elif score >= 45:
+        total += 1
+        drivers.append(f"building momentum (score {score}/100)")
     else:
-        bits = []
-        if result["n_closed"]:
-            bits.append(
-                f"The rule made **{result['n_closed']} completed "
-                f"trade{'s' if result['n_closed'] != 1 else ''}**: "
-                f"{result['n_wins']} "
-                f"winner{'s' if result['n_wins'] != 1 else ''} and "
-                f"{result['n_losses']} "
-                f"loser{'s' if result['n_losses'] != 1 else ''}"
-                + (f" (a {result['win_rate']:.0f}% win rate)." if
-                   result['win_rate'] is not None else "."))
-            if result["avg_win_pct"] is not None:
-                bits.append(f"The average winning trade made "
-                            f"**{result['avg_win_pct']:+.1f}%**"
-                            + (f"; the average losing trade lost "
-                               f"**{result['avg_loss_pct']:+.1f}%**."
-                               if result['avg_loss_pct'] is not None else "."))
-        if any(t["open"] for t in result["trades"]):
-            bits.append("One position is **still open** at the end of the "
-                        "period, valued at the last price.")
-        st.markdown(" ".join(bits))
+        total -= 2
+        negatives += 1
+        risks.append(f"the breakout ingredients just aren't there today "
+                     f"(score {score}/100)")
 
-    st.markdown(
-        f"**Worst drop (drawdown):** at its lowest point, this strategy was "
-        f"**down {abs(result['max_drawdown_pct']):.0f}% from its peak** — "
-        f"that's how much patience it would have tested. (For comparison, a "
-        f"buy-and-holder's worst drop was "
-        f"{abs(result['bh_max_drawdown_pct']):.0f}%.) *Drawdown means how "
-        "far your pot fell from its highest value before recovering — the "
-        "scariest moment of the journey.*")
+    # 3. Volume
+    if vol_ratio >= 1.5:
+        total += 1
+        drivers.append(f"trading on heavy volume ({vol_ratio:.1f}x normal)")
 
-    # ---------------- Every trade, colour-coded ----------------
-    if result["trades"]:
-        rows = []
-        for t in result["trades"]:
-            icon = "🟢" if t["pct"] > 0 else "🔴"
-            rows.append({
-                "Bought": t["buy_date"].strftime("%d %b %Y"),
-                "Buy price": t["buy_price"],
-                "Sold": (t["sell_date"].strftime("%d %b %Y")
-                         if not t["open"] else "Still open"),
-                "Sell price": t["sell_price"],
-                "Result": f"{icon} {t['pct']:+.1f}%",
-                "Dollar result": t["dollars"],
-            })
-        st.dataframe(
-            pd.DataFrame(rows), hide_index=True, width="stretch",
-            column_config={
-                "Buy price": st.column_config.NumberColumn(format="$%.2f"),
-                "Sell price": st.column_config.NumberColumn(
-                    format="$%.2f",
-                    help="For a 'still open' trade this is simply the "
-                         "latest price."),
-                "Dollar result": st.column_config.NumberColumn(
-                    format="$%.0f",
-                    help="How much this trade added to or took from the "
-                         "pot (the pot compounds from trade to trade)."),
-            })
+    # 4. Over-extension (chase guard)
+    over_today = pct_today is not None and pct_today > 8
+    if not over_today and rsi < 78 and not extended:
+        total += 1
+        drivers.append("not over-extended — it hasn't already run away")
+    else:
+        total -= 2
+        negatives += 1
+        strong_neg = True
+        if over_today:
+            risks.append(f"it's already up {pct_today:.0f}% today — buying "
+                         "after a spike is where beginners get hurt")
+        elif rsi >= 78:
+            risks.append(f"RSI is {rsi:.0f} (overheated) — late entries "
+                         "usually meet a pullback")
+        else:
+            risks.append("it has already run hard over the past two weeks")
 
-        # ---------------- Where each buy/sell happened ----------------
-        closes = result["test_closes"]
-        fig = go.Figure()
-        fig.add_trace(go.Scatter(x=closes.index, y=closes, name="Price",
-                                 line=dict(color="#455a64", width=1.5),
-                                 hovertemplate="%{y:.2f}<extra></extra>"))
-        buys = [(t["buy_date"], t["buy_price"]) for t in result["trades"]]
-        sells = [(t["sell_date"], t["sell_price"]) for t in result["trades"]
-                 if not t["open"]]
-        fig.add_trace(go.Scatter(
-            x=[d for d, _ in buys], y=[p for _, p in buys],
-            mode="markers", name="Bought (in this backtest)",
-            marker=dict(symbol="triangle-up", size=11, color="#1565c0",
-                        line=dict(color="#ffffff", width=1.5)),
-            hovertemplate="Bought at %{y:.2f}<extra></extra>"))
-        if sells:
-            fig.add_trace(go.Scatter(
-                x=[d for d, _ in sells], y=[p for _, p in sells],
-                mode="markers", name="Sold (in this backtest)",
-                marker=dict(symbol="triangle-down", size=11, color="#6a1b9a",
-                            line=dict(color="#ffffff", width=1.5)),
-                hovertemplate="Sold at %{y:.2f}<extra></extra>"))
-        fig.update_layout(
-            title=dict(text=f"{ticker} — where this rule bought and sold "
-                            "(historical replay, NOT live signals)",
-                       font=dict(size=14)),
-            height=340, margin=dict(l=10, r=10, t=60, b=10),
-            legend=dict(orientation="h", y=1.12, x=0, font=dict(size=11)),
-            plot_bgcolor="#fcfcfc",
-        )
-        fig.update_xaxes(gridcolor="#eceff1")
-        fig.update_yaxes(gridcolor="#eceff1", tickformat=".2f")
-        st.plotly_chart(fig, width="stretch",
-                        config={"displaylogo": False})
+    # 5. Market backdrop (futures + sector)
+    if backdrop == "positive":
+        total += 1
+        drivers.append("the broader market is rising today")
+    elif backdrop == "negative":
+        total -= 1
+        negatives += 1
+        risks.append("the broader market is falling today — even good "
+                     "setups struggle on red days")
 
-    # ---------------- What it means + the honesty note ----------------
-    st.markdown("**What this result is telling you:** " + interpret(result))
-    card("🧠 <b>Remember: these are PAST results on ONE stock.</b> Past "
-         "performance does not predict future results. A rule that worked "
-         "here might fail on another stock or in the future. Real trading "
-         "also involves fees, taxes, and the emotional difficulty of "
-         "actually following a rule when money is on the line — none of "
-         "which are shown here. This tool is for learning how strategies "
-         "behave, not financial advice. Never trade real money based only "
-         "on a backtest.", kind="warn")
-    st.caption(f"Backtest uses split-adjusted daily closing prices up to "
-               f"{bt_hist.index[-1].strftime('%d %b %Y')} (free Yahoo data, "
-               "may be delayed ~15 min).")
+    # 6. Earnings timing
+    if days_to_earnings is not None and 0 <= days_to_earnings <= 7:
+        total -= 2
+        negatives += 1
+        strong_neg = True
+        risks.insert(0, f"earnings are due in {days_to_earnings} "
+                        f"day{'s' if days_to_earnings != 1 else ''} — "
+                        "overnight gaps jump straight past stop-losses")
+    else:
+        total += 1  # clear of the earnings minefield (or no date known)
+
+    if total >= 5 and negatives == 0 and not strong_neg:
+        level = "green"
+    elif total <= 0 or (strong_neg and total <= 2):
+        level = "red"
+    else:
+        level = "amber"
+    return {"level": level, "drivers": drivers, "risks": risks, "total": total}
+
+
+def _market_backdrop(ticker, info):
+    """positive / neutral / negative — same data the Market Context section
+    shows (cached, so this costs nothing extra). Unknown -> neutral."""
+    sector = info.get("sector") or sector_of(ticker)
+    etf = SECTOR_ETFS.get(sector, DEFAULT_MARKET_ETF)
+    quotes, _ = fetch_quotes(("ES=F", "NQ=F", etf))
+    es = quotes.get("ES=F", {}).get("pct_change")
+    nq = quotes.get("NQ=F", {}).get("pct_change")
+    sec = quotes.get(etf, {}).get("pct_change")
+    if es is None or nq is None:
+        return "neutral"
+    if es >= 0.5 and nq >= 0.5:
+        # strong futures, but a falling sector makes it mixed, not positive
+        return "neutral" if (sec is not None and sec <= -0.3) else "positive"
+    if es <= -0.5 or nq <= -0.5 or (sec is not None and sec <= -0.5):
+        return "negative"
+    return "neutral"
+
+
+def _render_verdict(ticker, info, hist, breakout, pct_today, days_to_earnings):
+    """Section A2: the big colour-coded banner + why + main risk."""
+    st.subheader("🎯 Verdict")
+    trend = evaluate_trend_template(hist)
+    v = compute_verdict(
+        minervini_passed=trend["passed"] if trend else None,
+        score=breakout["score"],
+        vol_ratio=breakout["vol_ratio"],
+        pct_today=pct_today,
+        rsi=breakout["rsi"],
+        extended=breakout["extended"],
+        backdrop=_market_backdrop(ticker, info),
+        days_to_earnings=days_to_earnings,
+    )
+
+    banner = {
+        "green": ("🟢 Strong setup — worth a closer look", "good"),
+        "amber": ("🟡 Mixed — proceed with caution", "warn"),
+        "red":   ("🔴 Weak setup — not favourable right now", "bad"),
+    }[v["level"]]
+    card(f"<span style='font-size:1.35rem;font-weight:800;'>{banner[0]}</span>",
+         kind=banner[1])
+
+    # 2-3 plain sentences: the WHY (drivers) and the MAIN RISK
+    def join3(items):
+        items = items[:3]
+        return (items[0] if len(items) == 1
+                else ", ".join(items[:-1]) + " and " + items[-1])
+
+    if v["level"] == "green":
+        why = (f"This stock is {join3(v['drivers'])} — that's why this "
+               "looks favourable.")
+    elif v["drivers"]:
+        why = (f"In its favour, the stock is {join3(v['drivers'])}. But the "
+               "picture is not one-sided.")
+    else:
+        why = "Very little is working in this stock's favour right now."
+    risk = (f"**Main risk:** {v['risks'][0]}." if v["risks"] else
+            "**Main risk:** none specific today beyond the usual — any "
+            "stock can drop 10%+ on a single headline.")
+    st.markdown(f"{why} {risk}")
+
+    st.markdown("*This is the tool's read on the current setup — not a "
+                "promise the stock will rise, and not financial advice. A 🟢 "
+                "setup can still lose; a 🔴 can still rise. It describes "
+                "conditions now, not the future. Verify, and use the risk "
+                "section to size your trade.*")

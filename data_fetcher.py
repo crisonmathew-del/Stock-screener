@@ -50,23 +50,45 @@ def data_age_minutes(fetched_at_utc):
 
 
 def sanitize_history(df):
-    """Drop a corrupt final bar if Yahoo returns one.
+    """Remove corrupt price bars that Yahoo's free feed occasionally serves.
 
-    Yahoo's free feed occasionally serves a latest price on a different
-    adjustment basis than the rest of the history (typically around stock
-    splits), which shows up as an impossible one-day jump like +1000%.
-    If the last close is more than 5x — or less than a fifth of — the
-    stock's own 20-day median, the bar can't be trusted: drop it and let
-    the app show the last self-consistent session instead.
-    (Real one-day moves never approach 5x; even buyouts top out around 2x.)
+    The classic failure: around stock splits, some bars arrive on a different
+    adjustment basis than the rest of the history, which shows up as an
+    impossible jump like +1009% (or its mirror image, -91%). Real one-day
+    moves never approach these sizes — even buyouts top out around 2x — so
+    bars that far out of line are data errors, not market moves. Two checks:
+
+    1. One-bar spikes ANYWHERE in the series: a close more than 3x (or less
+       than a third of) BOTH of its neighbours is a glitch — remove the row.
+       (A genuine huge move doesn't fully un-happen the very next day.)
+    2. Corrupt trailing bars: walking back from the end, any last bar more
+       than 4x (or under a quarter of) the stock's own 20-day median close
+       is dropped — repeated up to 5 times in case several bad bars arrived.
     """
     if df is None or len(df) < 22:
         return df
+
+    # 1) one-bar spikes anywhere
     close = df["Close"]
-    last = float(close.iloc[-1])
-    median20 = float(close.iloc[-21:-1].median())
-    if median20 > 0 and (last > 5 * median20 or last < 0.2 * median20):
-        return df.iloc[:-1]
+    ratio_prev = close / close.shift(1)
+    ratio_next = close / close.shift(-1)
+    spike = (((ratio_prev > 3) & (ratio_next > 3)) |
+             ((ratio_prev < 1 / 3) & (ratio_next < 1 / 3))).fillna(False)
+    if spike.any():
+        df = df[~spike]
+
+    # 2) corrupt trailing bars (the last bar has no "next neighbour" to
+    #    compare against, so judge it against the recent median instead)
+    for _ in range(5):
+        if len(df) < 22:
+            break
+        close = df["Close"]
+        last = float(close.iloc[-1])
+        median20 = float(close.iloc[-21:-1].median())
+        if median20 > 0 and (last > 4 * median20 or last < 0.25 * median20):
+            df = df.iloc[:-1]
+        else:
+            break
     return df
 
 
@@ -92,6 +114,8 @@ def fetch_watchlist_history(tickers: tuple):
             auto_adjust=True,       # split/dividend-adjusted: keeps every bar on
                                     # ONE consistent basis, so a stock split can't
                                     # fake a +1000% day or corrupt moving averages
+            repair=True,            # yfinance's own fixer for bad Yahoo bars
+                                    # (100x errors, missing/mis-applied splits)
             threads=True,
             progress=False,
         )
@@ -129,8 +153,10 @@ def fetch_stock(ticker: str):
         return None
     try:
         t = yf.Ticker(ticker)
-        # auto_adjust=True: one consistent price basis (see fetch_watchlist_history)
-        hist = t.history(period="2y", interval="1d", auto_adjust=True)
+        # auto_adjust + repair: one consistent, Yahoo-glitch-corrected price
+        # basis (see fetch_watchlist_history for the full story)
+        hist = t.history(period="2y", interval="1d", auto_adjust=True,
+                         repair=True)
     except Exception:
         return None
     if hist is None or hist.empty or len(hist) < 2:
@@ -237,30 +263,8 @@ def fetch_quotes(symbols: tuple):
     return out, datetime.now(timezone.utc)
 
 
-@st.cache_data(ttl=600, show_spinner=False)
-def fetch_backtest_history(ticker: str):
-    """A longer (5-year) history just for the strategy backtest section, so
-    a 3-year test still has room for the 200-day average to warm up first.
-    Fetched separately so the rest of the analysis page is unaffected.
-
-    Returns (DataFrame, fetched_at_utc) or (None, None).
-    """
-    ticker = ticker.strip().upper()
-    if not ticker:
-        return None, None
-    try:
-        hist = yf.Ticker(ticker).history(period="5y", interval="1d",
-                                         auto_adjust=True)
-    except Exception:
-        return None, None
-    if hist is None or hist.empty or len(hist) < 2:
-        return None, None
-    return sanitize_history(hist), datetime.now(timezone.utc)
-
-
 def clear_all_caches():
     """Wipe every cached download (wired to the 'Refresh data' buttons)."""
     fetch_watchlist_history.clear()
     fetch_stock.clear()
     fetch_quotes.clear()
-    fetch_backtest_history.clear()

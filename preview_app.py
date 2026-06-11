@@ -33,10 +33,8 @@ def make_history(days=520, drift=0.0005, vol=0.015, seed=1,
                          "Close": close, "Volume": volume}, index=idx)
 
 
-# A varied universe: uptrends, downtrends, and a handful of "breakout days".
-# BT_HISTORIES are longer (5-year) versions of the same stocks, standing in
-# for the separate download the strategy-backtest section makes.
-HISTORIES, BT_HISTORIES = {}, {}
+# A varied universe: uptrends, downtrends, and a handful of "breakout days"
+HISTORIES = {}
 for i, t in enumerate(all_tickers()):
     rng = np.random.default_rng(i)
     drift = float(rng.uniform(-0.001, 0.002))
@@ -47,9 +45,6 @@ for i, t in enumerate(all_tickers()):
         jump, vol_mult = 0.02, 1.7
     HISTORIES[t] = make_history(seed=i, drift=drift, last_day_jump=jump,
                                 last_day_volume_mult=vol_mult)
-    BT_HISTORIES[t] = make_history(days=1300, seed=i, drift=drift,
-                                   last_day_jump=jump,
-                                   last_day_volume_mult=vol_mult)
 
 FETCHED = datetime.now(timezone.utc)
 
@@ -84,16 +79,10 @@ def fake_quotes(symbols):
 # Swap the network layer out from under the tab modules, then run the app.
 import tab_analysis, tab_minervini, tab_scanner  # noqa: E402
 
-def fake_backtest_history(ticker):
-    h = BT_HISTORIES.get(ticker.strip().upper())
-    return (h, FETCHED) if h is not None else (None, None)
-
-
 tab_scanner.fetch_watchlist_history = fake_watchlist_history
 tab_minervini.fetch_watchlist_history = fake_watchlist_history
 tab_analysis.fetch_stock = fake_stock
 tab_analysis.fetch_quotes = fake_quotes
-tab_analysis.fetch_backtest_history = fake_backtest_history
 
 import runpy  # noqa: E402
 

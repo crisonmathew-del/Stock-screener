@@ -143,59 +143,53 @@ flagged = compute_breakout(big_real_day)
 check("±30%+ move sets the verify flag", flagged["suspect_move"] is True)
 check("normal move not flagged", compute_breakout(normal)["suspect_move"] is False)
 
-print("backtest…")
-from backtest import run_backtest, interpret, STRATEGIES
+# Hardened cases the first fix missed: a corrupt bar in the MIDDLE (which
+# made "% today" insane via a bad PREVIOUS close), and a RUN of bad bars.
+mid_spike = make_history()
+mid_spike.iloc[-2, mid_spike.columns.get_loc("Close")] *= 11  # bad yesterday
+check("corrupt middle bar removed",
+      len(sanitize_history(mid_spike)) == len(mid_spike) - 1)
+cleaned = sanitize_history(mid_spike)
+r_last = cleaned["Close"].iloc[-1] / cleaned["Close"].iloc[-2]
+check("pct today sane after middle-bar cleanup", 0.5 < r_last < 2)
+run_bad = make_history()
+for k in (1, 2, 3):
+    run_bad.iloc[-k, run_bad.columns.get_loc("Close")] *= 12
+check("a run of 3 corrupt trailing bars all dropped",
+      len(sanitize_history(run_bad)) == len(run_bad) - 3)
 
-def flat_ohlcv(prices, volumes=None):
-    prices = np.asarray(prices, dtype=float)
-    if volumes is None:
-        volumes = np.full(len(prices), 1_000_000.0)
-    idx = pd.bdate_range(end=pd.Timestamp.today(), periods=len(prices))
-    return pd.DataFrame({"Open": prices, "High": prices * 1.004,
-                         "Low": prices * 0.996, "Close": prices,
-                         "Volume": volumes}, index=idx)
+print("verdict…")
+from tab_analysis import compute_verdict
 
-# Steady uptrend: the trend rule should buy, stay in, end "still open", profit
-up = flat_ohlcv(np.linspace(50, 120, 600) * (1 + 0.001 * np.sin(np.arange(600))))
-r = run_backtest(up, "ma_trend", 2, 10_000)
-check("uptrend backtest runs", r["error"] is None)
-check("uptrend ends profitable", r["return_pct"] > 0)
-check("still-open position reported", any(t["open"] for t in r["trades"]))
-pot = 10_000.0
-for t in r["trades"]:
-    pot *= 1 + t["pct"] / 100
-check("trade compounding matches final value", abs(pot - r["final_value"]) < 1.0)
-for a, b in zip(r["trades"], r["trades"][1:]):
-    check("no overlapping positions", a["sell_date"] is not None
-          and a["sell_date"] < b["buy_date"])
+green = compute_verdict(minervini_passed=7, score=80, vol_ratio=2.0,
+                        pct_today=3.0, rsi=62, extended=False,
+                        backdrop="positive", days_to_earnings=30)
+check("all-positive case is green", green["level"] == "green")
+check("green names its drivers", len(green["drivers"]) >= 3)
 
-# Buy-and-hold benchmark maths
-closes = r["test_closes"]
-check("buy-and-hold maths correct",
-      abs(r["bh_value"] - 10_000 / closes.iloc[0] * closes.iloc[-1]) < 0.01)
+earn = compute_verdict(minervini_passed=7, score=80, vol_ratio=2.0,
+                       pct_today=3.0, rsi=62, extended=False,
+                       backdrop="positive", days_to_earnings=3)
+check("imminent earnings forces verdict below green", earn["level"] != "green")
+check("earnings is the lead risk", "earnings" in earn["risks"][0])
 
-# Breakout stop-loss: spike up on volume (buy), then crash -10% (stop out)
-seq = [100.0] * 150 + [106.0] + [95.0] + [95.0] * 20
-vols = [1e6] * 150 + [4e6] + [1e6] * 21
-crash = flat_ohlcv(seq, vols)
-rb = run_backtest(crash, "breakout_volume", 1, 10_000)
-stopped = [t for t in rb["trades"] if not t["open"]]
-check("breakout rule bought the spike", len(rb["trades"]) >= 1)
-check("7% stop-loss closed the trade", stopped and stopped[0]["pct"] < -6)
+spike_v = compute_verdict(minervini_passed=7, score=75, vol_ratio=3.0,
+                          pct_today=12.0, rsi=85, extended=True,
+                          backdrop="positive", days_to_earnings=30)
+check("heavy overextension forces verdict below green",
+      spike_v["level"] != "green")
 
-# Friendly handling of recent IPOs / short or odd periods
-check("insufficient history -> friendly error",
-      run_backtest(flat_ohlcv([100.0] * 90), "golden_cross", 2, 10_000)["error"])
-short = run_backtest(flat_ohlcv(np.linspace(80, 110, 420)), "golden_cross", 3, 10_000)
-check("short history -> runs with a note", short["error"] is None and short["note"])
-check("single golden cross -> one trade",
-      len(run_backtest(one_cross, "golden_cross", 1, 10_000)["trades"]) == 1)
-
-# Interpretation always says something, for every strategy
-for key in STRATEGIES:
-    rr = run_backtest(up, key, 2, 10_000)
-    check(f"interpretation non-empty for {key}",
-          rr["error"] is None and len(interpret(rr)) > 40)
+weak = compute_verdict(minervini_passed=2, score=20, vol_ratio=0.8,
+                       pct_today=-9.0, rsi=80, extended=True,
+                       backdrop="negative", days_to_earnings=4)
+check("mostly-negative case is red", weak["level"] == "red")
+mixed = compute_verdict(minervini_passed=None, score=55, vol_ratio=1.0,
+                        pct_today=1.0, rsi=60, extended=False,
+                        backdrop="neutral", days_to_earnings=None)
+check("middling case is amber", mixed["level"] == "amber")
+for v in (green, earn, spike_v, weak, mixed):
+    check("verdict always has a risk or driver",
+          v["drivers"] or v["risks"])
 
 print("patterns…")
 rep = detect_patterns(make_history())
