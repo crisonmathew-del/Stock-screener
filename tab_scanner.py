@@ -37,8 +37,12 @@ def _score_watchlist(_histories, cache_key):
             "Volume vs avg": result["vol_ratio"],
             "RSI": result["rsi"],
             "Score": result["score"],
-            "Verdict": result["verdict"],
-            "Entry quality": result["entry_note"],
+            # A one-day move beyond ±30% is flagged rather than celebrated —
+            # it can be real news, but it's also how data glitches look.
+            "Verdict": ("⚠️ Unusual move — verify data" if result["suspect_move"]
+                        else result["verdict"]),
+            "Entry quality": ("⚠️ Check finance.yahoo.com first"
+                              if result["suspect_move"] else result["entry_note"]),
         })
     return pd.DataFrame(rows)
 

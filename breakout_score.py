@@ -198,6 +198,15 @@ def compute_breakout(df):
     extended = extended_today or extended_multi
     score = int(np.clip(score + bonus - penalty, 0, 100))
 
+    # Data sanity (per the app-wide rule): a move beyond ±30% in one day is
+    # rare enough that it deserves a "verify this elsewhere" flag — it can be
+    # real (buyouts, biotech news) but is also how data glitches look.
+    suspect_move = abs(pct_today) > 30
+    if suspect_move:
+        flags.append(f"Moved {pct_today:+.0f}% vs the previous close — moves "
+                     "beyond ±30% are sometimes data errors. Verify on "
+                     "finance.yahoo.com before trusting these numbers.")
+
     return {
         "price": price,
         "prev_close": prev_close,
@@ -211,6 +220,7 @@ def compute_breakout(df):
         "macd_crossed_up": macd_up,
         "ret5": ret5, "ret10": ret10,
         "extended": extended,
+        "suspect_move": suspect_move,
         "score": score,
         "bonus": bonus,
         "penalty": penalty,

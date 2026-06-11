@@ -125,6 +125,24 @@ for t in ("golden_cross", "death_cross", "macd_up", "macd_down"):
     adjacent = any((b - a).days <= 1 for a, b in zip(dts, dts[1:]))
     check(f"no {t} events on adjacent days", not adjacent)
 
+print("data sanity (the KLAC +1009% class of bug)…")
+from data_fetcher import sanitize_history
+
+normal = make_history()
+check("normal history untouched", len(sanitize_history(normal)) == len(normal))
+big_real_day = make_history(last_day_jump=0.45)  # +45%: rare but possible
+check("a real +45% day is kept", len(sanitize_history(big_real_day)) == len(big_real_day))
+corrupt = make_history(last_day_jump=10.0)  # +1000%: adjustment glitch
+check("an 11x corrupt last bar is dropped",
+      len(sanitize_history(corrupt)) == len(corrupt) - 1)
+split_like = make_history()
+split_like.iloc[-1, split_like.columns.get_loc("Close")] /= 10  # 0.1x glitch
+check("a 0.1x corrupt last bar is dropped",
+      len(sanitize_history(split_like)) == len(split_like) - 1)
+flagged = compute_breakout(big_real_day)
+check("±30%+ move sets the verify flag", flagged["suspect_move"] is True)
+check("normal move not flagged", compute_breakout(normal)["suspect_move"] is False)
+
 print("patterns…")
 rep = detect_patterns(make_history())
 check("pattern report shape", {"shown", "not_detected", "verdict",

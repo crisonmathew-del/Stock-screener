@@ -49,6 +49,27 @@ def data_age_minutes(fetched_at_utc):
     return (datetime.now(timezone.utc) - fetched_at_utc).total_seconds() / 60.0
 
 
+def sanitize_history(df):
+    """Drop a corrupt final bar if Yahoo returns one.
+
+    Yahoo's free feed occasionally serves a latest price on a different
+    adjustment basis than the rest of the history (typically around stock
+    splits), which shows up as an impossible one-day jump like +1000%.
+    If the last close is more than 5x — or less than a fifth of — the
+    stock's own 20-day median, the bar can't be trusted: drop it and let
+    the app show the last self-consistent session instead.
+    (Real one-day moves never approach 5x; even buyouts top out around 2x.)
+    """
+    if df is None or len(df) < 22:
+        return df
+    close = df["Close"]
+    last = float(close.iloc[-1])
+    median20 = float(close.iloc[-21:-1].median())
+    if median20 > 0 and (last > 5 * median20 or last < 0.2 * median20):
+        return df.iloc[:-1]
+    return df
+
+
 # --------------------------------------------------------------------------
 # Bulk download: the whole watchlist in one request (for Tabs 1 and 3)
 # --------------------------------------------------------------------------
@@ -68,7 +89,9 @@ def fetch_watchlist_history(tickers: tuple):
             period="2y",            # enough for 200-day MAs + a 12-month return
             interval="1d",
             group_by="ticker",
-            auto_adjust=False,      # keep raw prices so they match Yahoo's site
+            auto_adjust=True,       # split/dividend-adjusted: keeps every bar on
+                                    # ONE consistent basis, so a stock split can't
+                                    # fake a +1000% day or corrupt moving averages
             threads=True,
             progress=False,
         )
@@ -81,7 +104,7 @@ def fetch_watchlist_history(tickers: tuple):
     histories = {}
     for ticker in tickers:
         try:
-            df = raw[ticker].dropna(subset=["Close"])
+            df = sanitize_history(raw[ticker].dropna(subset=["Close"]))
             if len(df) >= 2:
                 histories[ticker] = df
         except (KeyError, TypeError):
@@ -106,11 +129,13 @@ def fetch_stock(ticker: str):
         return None
     try:
         t = yf.Ticker(ticker)
-        hist = t.history(period="2y", interval="1d", auto_adjust=False)
+        # auto_adjust=True: one consistent price basis (see fetch_watchlist_history)
+        hist = t.history(period="2y", interval="1d", auto_adjust=True)
     except Exception:
         return None
     if hist is None or hist.empty or len(hist) < 2:
         return None
+    hist = sanitize_history(hist)
 
     # .info is a big metadata dictionary. It's occasionally slow or missing
     # fields, so everything that reads it uses .get() with a fallback.
@@ -188,7 +213,7 @@ def fetch_quotes(symbols: tuple):
     out = {}
     try:
         raw = yf.download(list(symbols), period="5d", interval="1d",
-                          group_by="ticker", auto_adjust=False,
+                          group_by="ticker", auto_adjust=True,
                           threads=True, progress=False)
     except Exception:
         return {}, None
