@@ -11,4 +11,5 @@ base = "light"
 primaryColor = "#1565c0"          # buttons/accents: the same blue as the 20-day MA
 backgroundColor = "#ffffff"
 secondaryBackgroundColor = "#f5f7fa"
-textColor = "#262730"
+textColor = "#1b2430"
+font = "sans serif"               # the CSS layer upgrades this to Inter

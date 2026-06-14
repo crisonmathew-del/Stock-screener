@@ -45,40 +45,157 @@ def handle_nav_target():
 
 
 def apply_global_styles():
-    """Small CSS layer for fluidity and mobile friendliness.
+    """The app's visual theme — one CSS layer, applied once at startup.
 
-    * The tab navigation renders as tappable pill buttons that wrap neatly
-      on narrow screens (instead of cramped radio dots).
-    * On phones (<= 640px wide) page padding shrinks and headings scale
-      down so content uses the full width.
-    Uses only stable Streamlit/BaseWeb selectors; verified by the UI tests.
+    Pure styling: it changes how things LOOK (font, spacing, shadows,
+    hover effects), never how they work. Targets only stable Streamlit /
+    BaseWeb hooks, and is verified by the UI screenshot tests. Everything
+    stays on the tested light, high-contrast palette (WCAG AA).
+
+    Tweaking the look? The colour variables live in the :root block below.
     """
     st.markdown("""<style>
-    /* --- top navigation: radio styled as wrapping pill buttons --- */
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+    :root {
+        --brand:        #1565c0;   /* primary blue (matches the 20-day MA) */
+        --brand-dark:   #0d47a1;
+        --ink:          #1b2430;   /* main text */
+        --muted:        #5b6675;
+        --surface:      #ffffff;
+        --line:         #e6eaf0;   /* hairline borders */
+        --shadow:       0 1px 2px rgba(16,32,56,.04), 0 6px 18px rgba(16,32,56,.06);
+        --shadow-soft:  0 1px 3px rgba(16,32,56,.05);
+        --radius:       14px;
+    }
+
+    /* ---------- typography + base ---------- */
+    html, body, [class*="css"], .stMarkdown, button, input, textarea, select {
+        font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+                     Roboto, sans-serif !important;
+    }
+    .stApp { background:
+        radial-gradient(1200px 480px at 50% -120px, #eef4fc 0%, #ffffff 60%); }
+    .block-container { padding-top: 1.4rem; max-width: 1180px; }
+    h1, h2, h3 { color: var(--ink); letter-spacing: -0.01em; font-weight: 700; }
+    a { color: var(--brand); }
+
+    /* ---------- hero header ---------- */
+    .hero {
+        background: linear-gradient(135deg, #16307a 0%, #1565c0 55%, #1aa6e8 100%);
+        color: #fff; border-radius: 20px; padding: 26px 30px;
+        box-shadow: 0 10px 30px rgba(21,101,192,.28);
+        margin: 0 0 1.1rem 0;
+    }
+    .hero h1 {
+        color: #fff !important; margin: 0; font-size: 2.05rem; font-weight: 800;
+        letter-spacing: -0.02em;
+    }
+    .hero p {
+        margin: .5rem 0 0 0; color: rgba(255,255,255,.92); font-size: 1.03rem;
+        line-height: 1.5; max-width: 760px;
+    }
+
+    /* ---------- top navigation: radio styled as pill buttons ---------- */
     div[role="radiogroup"] {
-        flex-direction: row; flex-wrap: wrap; gap: 0.45rem 0.55rem;
+        flex-direction: row; flex-wrap: wrap; gap: 0.5rem 0.6rem;
     }
     label[data-baseweb="radio"] {
-        background: #f0f2f6; border: 1px solid #d5d9e0;
-        border-radius: 999px; padding: 0.4rem 1rem; margin: 0;
-        transition: background 0.15s ease, border-color 0.15s ease;
-        cursor: pointer;
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: 999px; padding: 0.5rem 1.15rem; margin: 0;
+        box-shadow: var(--shadow-soft); cursor: pointer; font-weight: 500;
+        transition: transform .15s ease, box-shadow .15s ease,
+                    background .15s ease, border-color .15s ease;
     }
-    label[data-baseweb="radio"]:hover { background: #e6eaf1; }
+    label[data-baseweb="radio"]:hover {
+        transform: translateY(-1px); border-color: #c2d4ee;
+        box-shadow: 0 4px 14px rgba(21,101,192,.14);
+    }
     label[data-baseweb="radio"]:has(input:checked) {
-        background: #e3ecf9; border-color: #1565c0; font-weight: 600;
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+        border-color: transparent; color: #fff; font-weight: 600;
+        box-shadow: 0 6px 16px rgba(21,101,192,.30);
     }
+    label[data-baseweb="radio"]:has(input:checked) * { color: #fff !important; }
     label[data-baseweb="radio"] > div:first-child { display: none; } /* hide dot */
 
-    /* --- phones: use the full width, scale type down a notch --- */
+    /* ---------- buttons ---------- */
+    .stButton > button, .stDownloadButton > button {
+        border-radius: 10px; border: 1px solid var(--line);
+        font-weight: 600; padding: 0.5rem 1.1rem; box-shadow: var(--shadow-soft);
+        transition: transform .14s ease, box-shadow .14s ease,
+                    border-color .14s ease, background .14s ease;
+    }
+    .stButton > button:hover, .stDownloadButton > button:hover {
+        transform: translateY(-1px); border-color: #c2d4ee;
+        box-shadow: 0 6px 16px rgba(21,101,192,.16);
+    }
+    .stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%);
+        border: none; color: #fff;
+    }
+    .stButton > button[kind="primary"]:hover { box-shadow: 0 8px 22px rgba(21,101,192,.34); }
+
+    /* ---------- metric cards ---------- */
+    [data-testid="stMetric"] {
+        background: var(--surface); border: 1px solid var(--line);
+        border-radius: var(--radius); padding: 14px 16px 12px;
+        box-shadow: var(--shadow);
+    }
+    [data-testid="stMetricLabel"] { color: var(--muted); font-weight: 600; }
+    [data-testid="stMetricValue"] { font-weight: 700; letter-spacing: -0.01em; }
+
+    /* ---------- inputs ---------- */
+    [data-baseweb="select"] > div, .stNumberInput input, .stTextInput input {
+        border-radius: 10px !important;
+    }
+    [data-baseweb="select"] > div:focus-within,
+    .stNumberInput input:focus, .stTextInput input:focus {
+        box-shadow: 0 0 0 3px rgba(21,101,192,.18) !important;
+        border-color: var(--brand) !important;
+    }
+
+    /* ---------- expanders, tables, alerts ---------- */
+    [data-testid="stExpander"] {
+        border: 1px solid var(--line); border-radius: 12px;
+        box-shadow: var(--shadow-soft); overflow: hidden;
+    }
+    [data-testid="stExpander"] summary:hover { color: var(--brand); }
+    [data-testid="stDataFrame"] {
+        border-radius: 12px; overflow: hidden; box-shadow: var(--shadow);
+        border: 1px solid var(--line);
+    }
+    [data-testid="stAlert"] { border-radius: 12px; }
+    [data-testid="stNotification"] { border-radius: 12px; }
+
+    /* ---------- dividers + scrollbar ---------- */
+    hr { border: none; height: 1px;
+         background: linear-gradient(90deg, transparent, var(--line), transparent); }
+    ::-webkit-scrollbar { width: 11px; height: 11px; }
+    ::-webkit-scrollbar-thumb {
+        background: #c7d2e0; border-radius: 8px; border: 3px solid #fff; }
+    ::-webkit-scrollbar-thumb:hover { background: #aebccd; }
+
+    /* ---------- phones: full width, scaled-down type ---------- */
     @media (max-width: 640px) {
-        .block-container { padding: 1.1rem 0.9rem 2rem; }
+        .block-container { padding: 1rem 0.85rem 2rem; }
+        .hero { padding: 20px 20px; border-radius: 16px; }
+        .hero h1 { font-size: 1.5rem; }
+        .hero p { font-size: 0.95rem; }
         h1 { font-size: 1.5rem; }
         h2 { font-size: 1.25rem; }
         h3 { font-size: 1.1rem; }
-        [data-testid="stMetricValue"] { font-size: 1.35rem; }
+        [data-testid="stMetricValue"] { font-size: 1.3rem; }
     }
     </style>""", unsafe_allow_html=True)
+
+
+def render_hero(title: str, subtitle: str):
+    """The gradient banner at the top of the page (styled by .hero CSS)."""
+    st.markdown(
+        f"<div class='hero'><h1>{title}</h1><p>{subtitle}</p></div>",
+        unsafe_allow_html=True,
+    )
 
 
 # --------------------------------------------------------------------------
@@ -142,7 +259,8 @@ def card(body_markdown: str, kind: str = "neutral", title: str = ""):
                   f"margin-bottom:6px;'>{title}</div>") if title else ""
     st.markdown(
         f"<div style='background:{bg};color:{fg};border:1px solid {border};"
-        f"border-radius:10px;padding:14px 18px;margin:6px 0;line-height:1.55;'>"
+        f"border-radius:14px;padding:15px 19px;margin:8px 0;line-height:1.55;"
+        f"box-shadow:0 1px 2px rgba(16,32,56,.04),0 6px 18px rgba(16,32,56,.06);'>"
         f"{title_html}{body_markdown}</div>",
         unsafe_allow_html=True,
     )

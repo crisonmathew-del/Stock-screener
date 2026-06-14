@@ -21,7 +21,7 @@ import tab_analysis
 import tab_minervini
 import tab_scanner
 from ui_helpers import (PAGES, PAGE_SCANNER, show_disclaimer,
-                        apply_global_styles, handle_nav_target)
+                        apply_global_styles, handle_nav_target, render_hero)
 
 st.set_page_config(
     page_title="Plain-English Stock Screener",
@@ -30,10 +30,12 @@ st.set_page_config(
 )
 apply_global_styles()
 
-st.title("📈 Plain-English Stock Screener")
-st.markdown("Find potential breakout stocks, understand exactly *why* they "
-            "scored what they scored, and learn the vocabulary as you go — "
-            "no trading experience required.")
+render_hero(
+    "📈 Plain-English Stock Screener",
+    "Find potential breakout stocks, understand exactly <i>why</i> they "
+    "scored what they scored, and learn the vocabulary as you go — no "
+    "trading experience required.",
+)
 
 # The disclaimer appears prominently on EVERY page, above the content.
 show_disclaimer()
