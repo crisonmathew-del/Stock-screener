@@ -12,6 +12,7 @@ Every function here is defensive: network hiccups, invalid tickers and
 missing fields return None / empty values instead of crashing the app.
 """
 
+import time
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
@@ -104,23 +105,33 @@ def fetch_watchlist_history(tickers: tuple):
     Returns ({ticker: DataFrame}, fetched_at_utc). Tickers that fail simply
     don't appear in the dict. Returns ({}, None) if the whole download fails
     (e.g. no internet) so callers can show a friendly message.
+
+    NOTE: we deliberately do NOT pass repair=True here. yfinance's repair
+    fires several extra metadata requests PER ticker; across the ~170-stock
+    watchlist that floods Yahoo and gets the whole batch rate-limited on a
+    shared cloud IP. auto_adjust + sanitize_history already keep prices on
+    one consistent basis and drop corrupt bars without that request storm.
     """
-    try:
-        raw = yf.download(
-            list(tickers),
-            period="2y",            # enough for 200-day MAs + a 12-month return
-            interval="1d",
-            group_by="ticker",
-            auto_adjust=True,       # split/dividend-adjusted: keeps every bar on
+    raw = None
+    for attempt in range(2):  # one retry: Yahoo throttling is often momentary
+        try:
+            raw = yf.download(
+                list(tickers),
+                period="2y",        # enough for 200-day MAs + a 12-month return
+                interval="1d",
+                group_by="ticker",
+                auto_adjust=True,   # split/dividend-adjusted: keeps every bar on
                                     # ONE consistent basis, so a stock split can't
                                     # fake a +1000% day or corrupt moving averages
-            repair=True,            # yfinance's own fixer for bad Yahoo bars
-                                    # (100x errors, missing/mis-applied splits)
-            threads=True,
-            progress=False,
-        )
-    except Exception:
-        return {}, None
+                threads=True,
+                progress=False,
+            )
+        except Exception:
+            raw = None
+        if raw is not None and not raw.empty:
+            break
+        if attempt == 0:
+            time.sleep(2)  # brief pause before the single retry
 
     if raw is None or raw.empty:
         return {}, None
@@ -153,10 +164,10 @@ def fetch_stock(ticker: str):
         return None
     try:
         t = yf.Ticker(ticker)
-        # auto_adjust + repair: one consistent, Yahoo-glitch-corrected price
-        # basis (see fetch_watchlist_history for the full story)
-        hist = t.history(period="2y", interval="1d", auto_adjust=True,
-                         repair=True)
+        # auto_adjust keeps every bar on one consistent split-adjusted basis;
+        # sanitize_history (below) removes any corrupt bars. We don't use
+        # repair=True — see fetch_watchlist_history for why it's avoided.
+        hist = t.history(period="2y", interval="1d", auto_adjust=True)
     except Exception:
         return None
     if hist is None or hist.empty or len(hist) < 2:
